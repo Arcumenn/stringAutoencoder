@@ -2,34 +2,63 @@
 from __future__ import unicode_literals, print_function, division
 from io import open
 import sys
-
 import random
-
 import torch
 import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
-
 import pandas as pd
 import Levenshtein
 from numpy import mean
+import time
+import math
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-# %%
-
-
 MAX_LENGTH = 25
-N_TRAINING = 200000
+N_TRAINING = 2000
+# N_TRAINING = 200000
 hidden_size = 256
-
-
-
- # %%
 
 SOS_token = 0
 EOS_token = 1
+
+
+def prepareData(lang1, lang2, reverse=False):
+    input_lang, output_lang, pairs = readLangs(lang1, lang2, reverse)
+    print("Read %s word pairs" % len(pairs))
+    pairs = filterPairs(pairs)
+    print("Trimmed to %s word pairs" % len(pairs))
+    print("Counting sounds...")
+    for pair in pairs:
+        input_lang.addSentence(pair[0])
+        output_lang.addSentence(pair[1])
+    print("Counted sounds:")
+    print(input_lang.name, input_lang.n_words)
+    print(output_lang.name, output_lang.n_words)
+    return input_lang, output_lang, pairs
+
+
+def readLangs(lang1, lang2, reverse=False):
+    print("Reading lines...")
+
+    # Read the file and split into lines
+    lines = open('../data/%s-%s.txt' % (lang1, lang2), encoding='utf-8').\
+        read().strip().split('\n')
+
+    # Split every line into pairs and normalize
+    pairs = [[s for s in l.split('\t')] for l in lines]
+
+    # Reverse pairs, make Lang instances
+    if reverse:
+        pairs = [list(reversed(p)) for p in pairs]
+        input_lang = Lang(lang2)
+        output_lang = Lang(lang1)
+    else:
+        input_lang = Lang(lang1)
+        output_lang = Lang(lang2)
+
+    return input_lang, output_lang, pairs
 
 
 class Lang:
@@ -53,29 +82,6 @@ class Lang:
         else:
             self.word2count[word] += 1
 
-# %%
-def readLangs(lang1, lang2, reverse=False):
-    print("Reading lines...")
-
-    # Read the file and split into lines
-    lines = open('data/%s-%s.txt' % (lang1, lang2), encoding='utf-8').\
-        read().strip().split('\n')
-
-    # Split every line into pairs and normalize
-    pairs = [[s for s in l.split('\t')] for l in lines]
-
-    # Reverse pairs, make Lang instances
-    if reverse:
-        pairs = [list(reversed(p)) for p in pairs]
-        input_lang = Lang(lang2)
-        output_lang = Lang(lang1)
-    else:
-        input_lang = Lang(lang1)
-        output_lang = Lang(lang2)
-
-    return input_lang, output_lang, pairs
-# %%
-
 
 def filterPair(p):
     return len(p[0].split(' ')) < MAX_LENGTH and \
@@ -84,26 +90,7 @@ def filterPair(p):
 
 def filterPairs(pairs):
     return [pair for pair in pairs if filterPair(pair)]
-# %%
 
-def prepareData(lang1, lang2, reverse=False):
-    input_lang, output_lang, pairs = readLangs(lang1, lang2, reverse)
-    print("Read %s word pairs" % len(pairs))
-    pairs = filterPairs(pairs)
-    print("Trimmed to %s word pairs" % len(pairs))
-    print("Counting sounds...")
-    for pair in pairs:
-        input_lang.addSentence(pair[0])
-        output_lang.addSentence(pair[1])
-    print("Counted sounds:")
-    print(input_lang.name, input_lang.n_words)
-    print(output_lang.name, output_lang.n_words)
-    return input_lang, output_lang, pairs
-# %%
-
-input_lang, output_lang, pairs = prepareData('asjpIn', 'asjpOut', True)
-
-# %%
 
 class EncoderRNN(nn.Module):
     def __init__(self, input_size, hidden_size):
@@ -121,7 +108,7 @@ class EncoderRNN(nn.Module):
 
     def initHidden(self):
         return torch.zeros(1, 1, self.hidden_size, device=device)
-# %%
+
 
 class DecoderRNN(nn.Module):
     def __init__(self, hidden_size, output_size):
@@ -144,7 +131,6 @@ class DecoderRNN(nn.Module):
         return torch.zeros(1, 1, self.hidden_size, device=device)
 
 
-# %%
 def indexesFromSentence(lang, sentence):
     return [lang.word2index[word] for word in sentence.split(' ')]
 
@@ -158,10 +144,7 @@ def tensorFromSentence(lang, sentence):
 def tensorsFromPair(pair):
     input_tensor = tensorFromSentence(input_lang, pair[0])
     target_tensor = tensorFromSentence(output_lang, pair[1])
-    return (input_tensor, target_tensor)
-# %%
-
-teacher_forcing_ratio = 0.5
+    return input_tensor, target_tensor
 
 
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
@@ -172,7 +155,6 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
 
     input_length = input_tensor.size(0)
     target_length = target_tensor.size(0)
-
 
     loss = 0
 
@@ -212,10 +194,6 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
     decoder_optimizer.step()
 
     return loss.item() / target_length
-# %%
-import time
-
-import math
 
 
 def asMinutes(s):
@@ -227,10 +205,10 @@ def asMinutes(s):
 def timeSince(since, percent):
     now = time.time()
     s = now - since
-    es = s / (percent)
+    es = s / percent
     rs = es - s
     return '%s (- %s)' % (asMinutes(s), asMinutes(rs))
-# %%
+
 
 def trainIters(encoder, decoder, n_iters, print_every=1000, learning_rate=0.01):
     start = time.time()
@@ -259,8 +237,6 @@ def trainIters(encoder, decoder, n_iters, print_every=1000, learning_rate=0.01):
             print('%s (%d %d%%) %.4f' % (timeSince(start, iter / n_iters),
                                          iter, iter / n_iters * 100, print_loss_avg))
 
-
-# %%
 
 def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
     with torch.no_grad():
@@ -292,7 +268,6 @@ def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
 
         return decoded_words
 
-# %%
 
 def getEmbedding(encoder, decoder, sentence, max_length=MAX_LENGTH):
     with torch.no_grad():
@@ -306,45 +281,36 @@ def getEmbedding(encoder, decoder, sentence, max_length=MAX_LENGTH):
         return encoder_hidden.view(-1).cpu().numpy()
 
 
-
-# %%
-
-encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
-decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
-
-# %%
-
-trainIters(encoder1, decoder1, 75000, print_every=5000)
-# %%
-
-testing = ["".join(x[0].split(" ")) for x in pairs[N_TRAINING:]]
-
-
-# %%
-
-def evWord(w, encoder=encoder1, decoder=decoder1):
+def evWord(w, encoder, decoder):
     inputString = " ".join(list(w))
     outputString = evaluate(encoder, decoder, inputString)
     wOut = "".join(outputString[:-1])
     ds = Levenshtein.distance(w, wOut)
     return ds / max(len(w), len(wOut))
 
-# %%
 
-testResults = [evWord(str(w)) for w in testing]
+input_lang, output_lang, pairs = prepareData('asjpIn', 'asjpOut', True)
 
-# %%
+print(input_lang.word2index)
+
+"""
+teacher_forcing_ratio = 0.5
+
+encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
+decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
+
+trainIters(encoder1, decoder1, 7500, print_every=100)
+# trainIters(encoder1, decoder1, 75000, print_every=1000) (calues from the original code)
+
+testing = ["".join(x[0].split(" ")) for x in pairs[N_TRAINING:]]
+
+testResults = [evWord(str(w), encoder1, decoder1) for w in testing]
 
 print(str(mean(testResults)))
 
-# %%
+embedding = [getEmbedding(encoder1, decoder1, p[0]) for p in pairs[1:1000]]
 
-embedding = [getEmbedding(encoder1, decoder1, p[0]) for p in pairs]
-
-# %%
-
-
-pd.DataFrame(embedding).to_csv("data/embedding.csv", 
+pd.DataFrame(embedding).to_csv("../data/embedding.csv",
                                header=False, index=False)
-
+"""
 
