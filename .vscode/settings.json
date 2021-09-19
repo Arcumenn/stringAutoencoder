@@ -1,0 +1,11 @@
+{
+    "editor.rulers": [ 
+    92
+    ],
+    "julia.execution.resultType": "inline, errors in REPL",
+    "editor.fontWeight": null,
+    "editor.fontFamily": "JuliaMono, 'Courier New', monospace",
+    "editor.formatOnType": true,
+    "editor.fontSize": 13,
+    "terminal.integrated.scrollback": 10000
+}
