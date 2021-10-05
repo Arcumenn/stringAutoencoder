@@ -24,74 +24,6 @@ SOS_token = 0
 EOS_token = 1
 
 
-def prepareData(lang1, lang2, reverse=False):
-    input_lang, output_lang, pairs = readLangs(lang1, lang2, reverse)
-    print("Read %s word pairs" % len(pairs))
-    pairs = filterPairs(pairs)
-    print("Trimmed to %s word pairs" % len(pairs))
-    print("Counting sounds...")
-    for pair in pairs:
-        input_lang.addSentence(pair[0])
-        output_lang.addSentence(pair[1])
-    print("Counted sounds:")
-    print(input_lang.name, input_lang.n_words)
-    print(output_lang.name, output_lang.n_words)
-    return input_lang, output_lang, pairs
-
-
-def readLangs(lang1, lang2, reverse=False):
-    print("Reading lines...")
-
-    # Read the file and split into lines
-    lines = open('../data/%s-%s.txt' % (lang1, lang2), encoding='utf-8').\
-        read().strip().split('\n')
-
-    # Split every line into pairs and normalize
-    pairs = [[s for s in l.split('\t')] for l in lines]
-
-    # Reverse pairs, make Lang instances
-    if reverse:
-        pairs = [list(reversed(p)) for p in pairs]
-        input_lang = Lang(lang2)
-        output_lang = Lang(lang1)
-    else:
-        input_lang = Lang(lang1)
-        output_lang = Lang(lang2)
-
-    return input_lang, output_lang, pairs
-
-
-class Lang:
-    def __init__(self, name):
-        self.name = name
-        self.word2index = {}
-        self.word2count = {}
-        self.index2word = {0: "SOS", 1: "EOS"}
-        self.n_words = 2  # Count SOS and EOSs
-
-    def addSentence(self, sentence):
-        for word in sentence.split(' '):
-            self.addWord(word)
-
-    def addWord(self, word):
-        if word not in self.word2index:
-            self.word2index[word] = self.n_words
-            self.word2count[word] = 1
-            self.index2word[self.n_words] = word
-            self.n_words += 1
-        else:
-            self.word2count[word] += 1
-
-
-def filterPair(p):
-    return len(p[0].split(' ')) < MAX_LENGTH and \
-        len(p[1].split(' ')) < MAX_LENGTH 
-
-
-def filterPairs(pairs):
-    return [pair for pair in pairs if filterPair(pair)]
-
-
 class EncoderRNN(nn.Module):
     def __init__(self, input_size, hidden_size):
         super(EncoderRNN, self).__init__()
@@ -129,22 +61,6 @@ class DecoderRNN(nn.Module):
 
     def initHidden(self):
         return torch.zeros(1, 1, self.hidden_size, device=device)
-
-
-def indexesFromSentence(lang, sentence):
-    return [lang.word2index[word] for word in sentence.split(' ')]
-
-
-def tensorFromSentence(lang, sentence):
-    indexes = indexesFromSentence(lang, sentence)
-    indexes.append(EOS_token)
-    return torch.tensor(indexes, dtype=torch.long, device=device).view(-1, 1)
-
-
-def tensorsFromPair(pair):
-    input_tensor = tensorFromSentence(input_lang, pair[0])
-    target_tensor = tensorFromSentence(output_lang, pair[1])
-    return input_tensor, target_tensor
 
 
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
@@ -194,20 +110,6 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
     decoder_optimizer.step()
 
     return loss.item() / target_length
-
-
-def asMinutes(s):
-    m = math.floor(s / 60)
-    s -= m * 60
-    return '%dm %ds' % (m, s)
-
-
-def timeSince(since, percent):
-    now = time.time()
-    s = now - since
-    es = s / percent
-    rs = es - s
-    return '%s (- %s)' % (asMinutes(s), asMinutes(rs))
 
 
 def trainIters(encoder, decoder, n_iters, print_every=1000, learning_rate=0.01):
@@ -289,18 +191,118 @@ def evWord(w, encoder, decoder):
     return ds / max(len(w), len(wOut))
 
 
+# !!!!!!!!!!!!!!!!!! Fully ported or not needed !!!!!!!!!!!!!!!!!! #
+
+def prepareData(lang1, lang2, reverse=False):
+    input_lang, output_lang, pairs = readLangs(lang1, lang2, reverse)
+    print("Read %s word pairs" % len(pairs))
+    pairs = filterPairs(pairs)
+    print("Trimmed to %s word pairs" % len(pairs))
+    print("Counting sounds...")
+    for pair in pairs:
+        input_lang.addSentence(pair[0])
+        output_lang.addSentence(pair[1])
+    print("Counted sounds:")
+    print(input_lang.name, input_lang.n_words)
+    print(output_lang.name, output_lang.n_words)
+    return input_lang, output_lang, pairs
+
+
+def readLangs(lang1, lang2, reverse=False):
+    print("Reading lines...")
+
+    # Read the file and split into lines
+    lines = open('../data/%s-%s.txt' % (lang1, lang2), encoding='utf-8').\
+        read().strip().split('\n')
+
+    # Split every line into pairs and normalize
+    pairs = [[s for s in l.split('\t')] for l in lines]
+
+    # Reverse pairs, make Lang instances
+    if reverse:
+        pairs = [list(reversed(p)) for p in pairs]
+        input_lang = Lang(lang2)
+        output_lang = Lang(lang1)
+    else:
+        input_lang = Lang(lang1)
+        output_lang = Lang(lang2)
+
+    return input_lang, output_lang, pairs
+
+
+class Lang:
+    def __init__(self, name):
+        self.name = name
+        self.word2index = {}
+        self.word2count = {}
+        self.index2word = {0: "SOS", 1: "EOS"}
+        self.n_words = 2  # Count SOS and EOSs
+
+    def addSentence(self, sentence):
+        for word in sentence.split(' '):
+            self.addWord(word)
+
+    def addWord(self, word):
+        if word not in self.word2index:
+            self.word2index[word] = self.n_words
+            self.word2count[word] = 1
+            self.index2word[self.n_words] = word
+            self.n_words += 1
+        else:
+            self.word2count[word] += 1
+
+
+def filterPair(p):
+    return len(p[0].split(' ')) < MAX_LENGTH and \
+        len(p[1].split(' ')) < MAX_LENGTH
+
+
+def filterPairs(pairs):
+    return [pair for pair in pairs if filterPair(pair)]
+
+
+def indexesFromSentence(lang, sentence):
+    return [lang.word2index[word] for word in sentence.split(' ')]
+
+
+def tensorFromSentence(lang, sentence):
+    indexes = indexesFromSentence(lang, sentence)
+    indexes.append(EOS_token)
+    return torch.tensor(indexes, dtype=torch.long, device=device).view(-1, 1)
+
+
+def tensorsFromPair(pair):
+    input_tensor = tensorFromSentence(input_lang, pair[0])
+    target_tensor = tensorFromSentence(output_lang, pair[1])
+    return input_tensor, target_tensor
+
+
+def asMinutes(s):
+    m = math.floor(s / 60)
+    s -= m * 60
+    return '%dm %ds' % (m, s)
+
+
+def timeSince(since, percent):
+    now = time.time()
+    s = now - since
+    es = s / percent
+    rs = es - s
+    return '%s (- %s)' % (asMinutes(s), asMinutes(rs))
+
+
 input_lang, output_lang, pairs = prepareData('asjpIn', 'asjpOut', True)
 
 print(input_lang.word2index)
 
-"""
 teacher_forcing_ratio = 0.5
 
+"""
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 
 trainIters(encoder1, decoder1, 7500, print_every=100)
-# trainIters(encoder1, decoder1, 75000, print_every=1000) (calues from the original code)
+# trainIters(encoder1, decoder1, 75000, print_every=1000) (values from the original code)
 
 testing = ["".join(x[0].split(" ")) for x in pairs[N_TRAINING:]]
 
@@ -314,3 +316,6 @@ pd.DataFrame(embedding).to_csv("../data/embedding.csv",
                                header=False, index=False)
 """
 
+tens_test = torch.tensor([2, 3, 4, 1], dtype=torch.long, device=device).view(-1, 1)
+emb = nn.Embedding(26, 256)
+print(emb(tens_test).view(1, 1, -1))
