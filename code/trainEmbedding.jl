@@ -6,9 +6,9 @@ const MAX_LENGTH = 25
 const N_TRAINING = 2000
 # const N_TRAINING = 200000 (value from the original code)
 const hidden_size = 256
-
-const SOS_token = 0
-const EOS_token = 1
+const SOS_token = 1
+const EOS_token = 2
+const teacher_forcing_ratio = 0.5
 
 
 """
@@ -70,7 +70,7 @@ mutable struct Lang
     n_words::Int64
 
     Lang(name::String) = new(name, Dict{String, Int64}(), Dict{String, Int64}(),
-                             Dict(0 => "SOS", 1 => "EOS"), 2)
+                             Dict(1 => "SOS", 2 => "EOS"), 3)
 
 end
 
@@ -135,54 +135,31 @@ function vectorsFromSentence(lang::Lang, sentence::String)::Vector{Int64}
 end # vectorsFromSentence
 
 
-### Python Beginning ###
-class EncoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size):
-        super(EncoderRNN, self).__init__()
-        self.hidden_size = hidden_size
-
-        self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size)
-
-    def forward(self, input, hidden):
-        embedded = self.embedding(input).view(1, 1, -1)
-        output = embedded
-        output, hidden = self.gru(output, hidden)
-        return output, hidden
-
-    def initHidden(self):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
-
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
-### Python End ###
-
-
- 
 
 encoderRNN = Chain(Flux.Embedding(input_lang.n_words, hidden_size), 
                    GRU(hidden_size, hidden_size))
+
+decoderRNN = Chain(Flux.Embedding(input_lang.n_words, hidden_size), x -> relu.(x), 
+                   GRU(hidden_size, hidden_size), softmax)
 
 
 function trainIters(encoder, decoder, n_iters, print_every=1000, learning_rate=0.01)
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0   # Reset every plot_every
 
-    # TO DO
-    # encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
-    # decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
+    encoder_optimizer = Descent(learning_rate)
+    decoder_optimizer = Descent(learning_rate)
     training_pairs = [vectorsFromPair(rand(pairs[1:N_TRAINING])) for i in 1:n_iters]
-    # criterion = nn.NLLLoss()
+    
     p = Progress(Int(floor(n_iters / print_every)), showspeed=true)
     for iter in 1:n_iters
         sleep(0.1)
         training_pair = training_pairs[iter]
-        input_tensor = training_pair[1]
-        target_tensor = training_pair[2]
+        input = training_pair[1]
+        target = training_pair[2]
 
-        # loss = train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
+        loss = train(input, target, encoder, decoder, encoder_optimizer, decoder_optimizer, 
+                     criterion)
         print_loss_total += loss
         plot_loss_total += loss
 
@@ -194,3 +171,83 @@ function trainIters(encoder, decoder, n_iters, print_every=1000, learning_rate=0
     end # for
 end # trainIters
 
+
+function train(input, target, encoder, decoder, encoder_optimizer, decoder_optimizer, 
+               criterion, max_length = MAX_LENGTH)
+
+    input_length = length(input)
+    target_length = length(target)
+
+    local loss::Float64 = 0
+
+    for letter in input
+        encoder(letter)
+    end # for
+    decoder_input::Int64 = SOS_token
+    decoder[3].state = encoder[2].state
+
+    use_teacher_forcing = rand() < teacher_forcing_ratio ? true : false
+
+    if use_teacher_forcing
+    else
+        for i in 1:length(target)   
+            output = decoder(decoder_input)
+            topv, topi = findmax(output)
+            decoder_input = topi
+
+            loss += Flux.Losses.mse(decoder_output, target[i])
+            decoder_input == EOS_token && break
+        end # for
+    
+    Flux.Optimise.update!(opt, parameters, grads)
+    return loss / target_length
+    end # if/else
+end
+
+def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
+    encoder_hidden = encoder.initHidden()
+
+    encoder_optimizer.zero_grad()
+    decoder_optimizer.zero_grad()
+
+    input_length = input_tensor.size(0)
+    target_length = target_tensor.size(0)
+
+    loss = 0
+
+    for ei in range(input_length):
+        encoder_output, encoder_hidden = encoder(
+            input_tensor[ei], encoder_hidden)
+
+    decoder_input = torch.tensor([[SOS_token]], device=device)
+
+    decoder_hidden = encoder_hidden
+
+    use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
+
+    if use_teacher_forcing:
+        # Teacher forcing: Feed the target as the next input
+        for di in range(target_length):
+            decoder_output, decoder_hidden = decoder(
+                decoder_input, decoder_hidden)
+            loss += criterion(decoder_output, target_tensor[di])
+            decoder_input = target_tensor[di]  # Teacher forcing
+
+    else:
+        # Without teacher forcing: use its own predictions as the next input
+        for di in range(target_length):
+            decoder_output, decoder_hidden = decoder(
+                decoder_input, decoder_hidden)
+            topv, topi = decoder_output.topk(1)
+            decoder_input = topi.squeeze().detach()  # detach from history as input
+
+            loss += criterion(decoder_output, target_tensor[di])
+            if decoder_input.item() == EOS_token:
+                break
+
+    loss.backward()
+
+    encoder_optimizer.step()
+    decoder_optimizer.step()
+
+    return loss.item() / target_length
