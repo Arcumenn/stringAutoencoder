@@ -1,6 +1,7 @@
 using DelimitedFiles
 using Flux
 using Dates
+using ProgressMeter
 
 const MAX_LENGTH = 25
 const N_TRAINING = 2000
@@ -116,27 +117,22 @@ function filterPair(p::SubArray)::Bool
 end # filterPair
 
 
-input_lang, output_lang, pairs = prepareData("asjpIn", "asjpOut", false)
-word2index_dict = sort(collect(input_lang.word2index), by=x->x[2])
-show(word2index_dict)
-
-
 function vectorsFromPair(pair::Vector{String})::Tuple{Vector{Int64}, Vector{Int64}}
-    input_vec = vectorsFromSentence(input_lang, pair[1])
-    target_vec = vectorsFromSentence(output_lang, pair[2])
+    input_vec = vectorFromSentence(input_lang, pair[1])
+    target_vec = vectorFromSentence(output_lang, pair[2])
     return input_vec, target_vec
 end # vectorsFromPair
 
 
-function vectorsFromSentence(lang::Lang, sentence::String)::Vector{Int64}
+function vectorFromSentence(lang::Lang, sentence::String)::Vector{Int64}
     indeces = [lang.word2index[word] for word in split(sentence)]
     append!(indeces, EOS_token)
     return indeces
-end # vectorsFromSentence
+end # vectorFromSentence
 
 
 function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0.01)
-
+    
 
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0   # Reset every plot_every
@@ -184,10 +180,10 @@ function train!(ps, input, target, encoder, decoder, optimizer; max_length = MAX
     # use_teacher_forcing = true
 
     gs = gradient(ps) do 
-    if use_teacher_forcing
+        if use_teacher_forcing
             # Teacher forcing: Feed the target as the next input
-        for i in 1:length(target)   
-            output = decoder(decoder_input)
+            for i in 1:length(target)
+                output = decoder(decoder_input)
                 loss += Flux.Losses.mse(output, target[i])
                 decoder_input = target[i]  # Teacher forcing
             end # for
@@ -196,13 +192,13 @@ function train!(ps, input, target, encoder, decoder, optimizer; max_length = MAX
             for i in 1:target_length
                 output = decoder(decoder_input)
                 println(length(output))
-            topv, topi = findmax(output)
+                topv, topi = findmax(output)
                 println(topi)
                 loss += Flux.Losses.mse(output, target[i])
                 topi == EOS_token && break
-        end # for
+            end # for
             return loss
-    end # if/else
+        end # if/else
     end # do
 
     Flux.Optimise.update!(optimizer, ps, gs)
@@ -210,8 +206,6 @@ function train!(ps, input, target, encoder, decoder, optimizer; max_length = MAX
     return final_loss
 end
 
-def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
-    encoder_hidden = encoder.initHidden()
 
 function ev_word(w, encoder, decoder)
     input_str = join(w, " ")
@@ -250,35 +244,24 @@ function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
     end # for
 end # evaluate
 
-    decoder_input = torch.tensor([[SOS_token]], device=device)
 
-    decoder_hidden = encoder_hidden
 
-    use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
+input_lang, output_lang, pairs = prepareData("asjpIn", "asjpOut", false)
+word2index_dict = sort(collect(input_lang.word2index), by=x->x[2])
+show(word2index_dict)
 
-    if use_teacher_forcing:
-        # Teacher forcing: Feed the target as the next input
-        for di in range(target_length):
-            decoder_output, decoder_hidden = decoder(
-                decoder_input, decoder_hidden)
-            loss += criterion(decoder_output, target_tensor[di])
-            decoder_input = target_tensor[di]  # Teacher forcing
+device = cpu
 
-    else:
-        # Without teacher forcing: use its own predictions as the next input
-        for di in range(target_length):
-            decoder_output, decoder_hidden = decoder(
-                decoder_input, decoder_hidden)
-            topv, topi = decoder_output.topk(1)
-            decoder_input = topi.squeeze().detach()  # detach from history as input
+encoderRNN = Chain(Flux.Embedding(input_lang.n_words, hidden_size), 
+                   GRU(hidden_size, hidden_size)) |> device
 
-            loss += criterion(decoder_output, target_tensor[di])
-            if decoder_input.item() == EOS_token:
-                break
+decoderRNN = Chain(Flux.Embedding(input_lang.n_words, hidden_size), x -> relu.(x), 
+                   GRU(hidden_size, hidden_size), softmax) |> device
 
-    loss.backward()
+trainIters(encoderRNN, decoderRNN, 7500; print_every=100)
 
-    encoder_optimizer.step()
-    decoder_optimizer.step()
+testing = [join(split(x[1], " "), "") for x in pairs[200001:202000]]
 
-    return loss.item() / target_length
+testResults = [ev_word(w, encoderRNN, decoderRNN) for w in testing]
+
+print(str(mean(testResults)))
