@@ -172,36 +172,49 @@ function trainIters(encoder, decoder, n_iters, print_every=1000, learning_rate=0
 end # trainIters
 
 
-function train(input, target, encoder, decoder, encoder_optimizer, decoder_optimizer, 
-               criterion, max_length = MAX_LENGTH)
+function train!(ps, input, target, encoder, decoder, optimizer; max_length = MAX_LENGTH
+    )::Float64
 
     input_length = length(input)
     target_length = length(target)
 
-    local loss::Float64 = 0
+    loss::Float64 = 0
 
     for letter in input
         encoder(letter)
     end # for
+
     decoder_input::Int64 = SOS_token
     decoder[3].state = encoder[2].state
 
     use_teacher_forcing = rand() < teacher_forcing_ratio ? true : false
+    # use_teacher_forcing = true
 
+    gs = gradient(ps) do 
     if use_teacher_forcing
-    else
+            # Teacher forcing: Feed the target as the next input
         for i in 1:length(target)   
             output = decoder(decoder_input)
+                loss += Flux.Losses.mse(output, target[i])
+                decoder_input = target[i]  # Teacher forcing
+            end # for
+            return loss
+        else
+            for i in 1:target_length
+                output = decoder(decoder_input)
+                println(length(output))
             topv, topi = findmax(output)
-            decoder_input = topi
-
-            loss += Flux.Losses.mse(decoder_output, target[i])
-            decoder_input == EOS_token && break
+                println(topi)
+                loss += Flux.Losses.mse(output, target[i])
+                topi == EOS_token && break
         end # for
-    
-    Flux.Optimise.update!(opt, parameters, grads)
-    return loss / target_length
+            return loss
     end # if/else
+    end # do
+
+    Flux.Optimise.update!(optimizer, ps, gs)
+    final_loss = loss / target_length
+    return final_loss
 end
 
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
