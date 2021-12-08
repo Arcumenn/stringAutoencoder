@@ -135,31 +135,24 @@ function vectorsFromSentence(lang::Lang, sentence::String)::Vector{Int64}
 end # vectorsFromSentence
 
 
-
-encoderRNN = Chain(Flux.Embedding(input_lang.n_words, hidden_size), 
-                   GRU(hidden_size, hidden_size))
-
-decoderRNN = Chain(Flux.Embedding(input_lang.n_words, hidden_size), x -> relu.(x), 
-                   GRU(hidden_size, hidden_size), softmax)
+function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0.01)
 
 
-function trainIters(encoder, decoder, n_iters, print_every=1000, learning_rate=0.01)
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0   # Reset every plot_every
 
-    encoder_optimizer = Descent(learning_rate)
-    decoder_optimizer = Descent(learning_rate)
+    optimizer = Descent(learning_rate)
+    
+    ps = Flux.params(encoder, decoder)
     training_pairs = [vectorsFromPair(rand(pairs[1:N_TRAINING])) for i in 1:n_iters]
     
     p = Progress(Int(floor(n_iters / print_every)), showspeed=true)
     for iter in 1:n_iters
-        sleep(0.1)
         training_pair = training_pairs[iter]
         input = training_pair[1]
         target = training_pair[2]
 
-        loss = train(input, target, encoder, decoder, encoder_optimizer, decoder_optimizer, 
-                     criterion)
+        loss = train!(ps, input, target, encoder, decoder, optimizer)
         print_loss_total += loss
         plot_loss_total += loss
 
