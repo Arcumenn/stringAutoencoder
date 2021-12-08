@@ -213,17 +213,42 @@ end
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
     encoder_hidden = encoder.initHidden()
 
-    encoder_optimizer.zero_grad()
-    decoder_optimizer.zero_grad()
+function ev_word(w, encoder, decoder)
+    input_str = join(w, " ")
+    output_str = evaluate(encoder, decoder, input_str)
+    w_out = join(output_str[1:-1], "")
+    distance = Levenshtein.distance(w)
+    return distance / max(length(w), length(w_out))
+end # ev_word
 
-    input_length = input_tensor.size(0)
-    target_length = target_tensor.size(0)
 
-    loss = 0
+function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
+    input = vectorFromSentence(input_lang, sentence)
+    input_length = length(input)
+    encoder_hidden = reshape(zeros(hidden_size), hidden_size, 1)
+    encoder[2].state = encoder_hidden
 
-    for ei in range(input_length):
-        encoder_output, encoder_hidden = encoder(
-            input_tensor[ei], encoder_hidden)
+    for letter in input
+        encoder(letter)
+    end # for
+
+    decoder_input::Int64 = SOS_token
+    decoder[3].state = encoder[2].state
+
+    decoded_words::Vector{String} = []
+
+    for i in 1:max_length
+        decoder_output = decoder(decoder_input)
+        topv, topi = findmax(decoder_output)
+        decoder_input = topi
+        if decoder_input == EOS_token
+            push!(decoded_words, "<EOS>")
+            break
+        else
+            push!(decoded_words, output_lang.index2word[topi])
+        end # if/else
+    end # for
+end # evaluate
 
     decoder_input = torch.tensor([[SOS_token]], device=device)
 
