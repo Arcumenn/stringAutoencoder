@@ -148,11 +148,9 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
         training_pair = training_pairs[iter]
         input = training_pair[1]
         target = training_pair[2]
-
-        output = train!(input, target, encoder, decoder)
-
+        
         gs = gradient(ps) do 
-            loss = mean(Flux.logitbinarycrossentropy.(target, output))
+            loss = mean(train(input, target, decoder, encoder))
             return loss
         end # do
 
@@ -166,17 +164,13 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
         end # if
 
         Flux.Optimise.update!(optimizer, ps, gs)
-        Flux.reset!(encoder)
-        Flux.reset!(decoder)
     end # for
 end # trainIters
 
 
-function train!(input, target, encoder, decoder; max_length = MAX_LENGTH)
+function train(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float64
 
-    outputs = []
-
-    input_length = length(input)
+    loss::Float64 = 0.0
     target_length = length(target)
 
     for letter in input
@@ -189,24 +183,24 @@ function train!(input, target, encoder, decoder; max_length = MAX_LENGTH)
     use_teacher_forcing = rand() < teacher_forcing_ratio ? true : false
     # use_teacher_forcing = true
 
-        if use_teacher_forcing
-            # Teacher forcing: Feed the target as the next input
+    if use_teacher_forcing
+        # Teacher forcing: Feed the target as the next input
         for i in 1:target_length
-                output = decoder(decoder_input)
-            push!(outputs, output)
-                decoder_input = target[i]  # Teacher forcing
-            end # for
-        return outputs
-        else
-            for i in 1:target_length
-                output = decoder(decoder_input)
-            push!(outputs, output)
-                topv, topi = findmax(output)
-                topi == EOS_token && break
-            end # for
-        return outputs
-        end # if/else
-end
+            output = decoder(decoder_input)
+            loss += Flux.logitbinarycrossentropy(output, target[i])
+            decoder_input = target[i]  # Teacher forcing
+        end # for
+        return loss / target_length
+    else
+        for i in 1:target_length
+            output = decoder(decoder_input)
+            loss += Flux.logitbinarycrossentropy(output, target[i])
+            topv, topi = findmax(output)
+            topi == EOS_token && break
+        end # for
+        return loss / target_length
+    end # if/else
+end # train
 
 
 function ev_word(w, encoder, decoder)
@@ -248,7 +242,7 @@ end # evaluate
 
 
 
-input_lang, output_lang, pairs = prepareData("asjpIn", "asjpOut", false)
+input_lang, output_lang, word_pairs = prepareData("asjpIn", "asjpOut", false)
 word2index_dict = sort(collect(input_lang.word2index), by=x->x[2])
 show(word2index_dict)
 
