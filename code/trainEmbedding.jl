@@ -1,10 +1,12 @@
+using Dates
 using DelimitedFiles
 using Flux
-using Dates
 using ProgressMeter
+using Statistics
+using StringDistances
 
 const MAX_LENGTH = 25
-const N_TRAINING = 2000
+const N_TRAINING = 50000
 # const N_TRAINING = 200000 (value from the original code)
 const hidden_size = 256
 const SOS_token = 1
@@ -12,9 +14,6 @@ const EOS_token = 2
 const teacher_forcing_ratio = 0.5
 
 
-"""
-
-"""
 function prepareData(lang1, lang2, reverse::Bool=false
                     )::Tuple{Lang, Lang, Vector{Vector{String}}}
 
@@ -139,8 +138,10 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
 
     optimizer = Descent(learning_rate)
     
+    local loss
     ps = Flux.params(encoder, decoder)
-    training_pairs = [vectorsFromPair(rand(pairs[1:N_TRAINING])) for i in 1:n_iters]
+    # training_pairs = [vectorsFromPair(pairs[i]) for i in 1:n_iters]
+    training_pairs = [vectorsFromPair(rand(word_pairs[1:N_TRAINING])) for i in 1:n_iters]
     
     p = Progress(Int(floor(n_iters / print_every)), showspeed=true)
     for iter in 1:n_iters
@@ -148,7 +149,13 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
         input = training_pair[1]
         target = training_pair[2]
 
-        loss = train!(ps, input, target, encoder, decoder, optimizer)
+        output = train!(input, target, encoder, decoder)
+
+        gs = gradient(ps) do 
+            loss = mean(Flux.logitbinarycrossentropy.(target, output))
+            return loss
+        end # do
+
         print_loss_total += loss
         plot_loss_total += loss
 
@@ -157,17 +164,20 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
             print_loss_total = 0
             next!(p; showvalues = [(:Iteration, iter), (:LossAverage, print_loss_avg)])
         end # if
+
+        Flux.Optimise.update!(optimizer, ps, gs)
+        Flux.reset!(encoder)
+        Flux.reset!(decoder)
     end # for
 end # trainIters
 
 
-function train!(ps, input, target, encoder, decoder, optimizer; max_length = MAX_LENGTH
-    )::Float64
+function train!(input, target, encoder, decoder; max_length = MAX_LENGTH)
+
+    outputs = []
 
     input_length = length(input)
     target_length = length(target)
-
-    loss::Float64 = 0
 
     for letter in input
         encoder(letter)
@@ -179,46 +189,37 @@ function train!(ps, input, target, encoder, decoder, optimizer; max_length = MAX
     use_teacher_forcing = rand() < teacher_forcing_ratio ? true : false
     # use_teacher_forcing = true
 
-    gs = gradient(ps) do 
         if use_teacher_forcing
             # Teacher forcing: Feed the target as the next input
-            for i in 1:length(target)
+        for i in 1:target_length
                 output = decoder(decoder_input)
-                loss += Flux.Losses.mse(output, target[i])
+            push!(outputs, output)
                 decoder_input = target[i]  # Teacher forcing
             end # for
-            return loss
+        return outputs
         else
             for i in 1:target_length
                 output = decoder(decoder_input)
-                println(length(output))
+            push!(outputs, output)
                 topv, topi = findmax(output)
-                println(topi)
-                loss += Flux.Losses.mse(output, target[i])
                 topi == EOS_token && break
             end # for
-            return loss
+        return outputs
         end # if/else
-    end # do
-
-    Flux.Optimise.update!(optimizer, ps, gs)
-    final_loss = loss / target_length
-    return final_loss
 end
 
 
 function ev_word(w, encoder, decoder)
     input_str = join(w, " ")
     output_str = evaluate(encoder, decoder, input_str)
-    w_out = join(output_str[1:-1], "")
-    distance = Levenshtein.distance(w)
+    w_out = join(output_str[1:end-1], "")
+    distance = Levenshtein()(w, w_out)
     return distance / max(length(w), length(w_out))
 end # ev_word
 
 
 function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
     input = vectorFromSentence(input_lang, sentence)
-    input_length = length(input)
     encoder_hidden = reshape(zeros(hidden_size), hidden_size, 1)
     encoder[2].state = encoder_hidden
 
@@ -242,6 +243,7 @@ function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
             push!(decoded_words, output_lang.index2word[topi])
         end # if/else
     end # for
+    return decoded_words
 end # evaluate
 
 
@@ -252,16 +254,17 @@ show(word2index_dict)
 
 device = cpu
 
-encoderRNN = Chain(Flux.Embedding(input_lang.n_words, hidden_size), 
+encoderRNN = Chain(Flux.Embedding(input_lang.n_words - 1, hidden_size), 
                    GRU(hidden_size, hidden_size)) |> device
 
-decoderRNN = Chain(Flux.Embedding(input_lang.n_words, hidden_size), x -> relu.(x), 
-                   GRU(hidden_size, hidden_size), softmax) |> device
+decoderRNN = Chain(Flux.Embedding(output_lang.n_words, hidden_size), x -> relu.(x), 
+                GRU(hidden_size, hidden_size), 
+                Dense(hidden_size, output_lang.n_words - 1)) |> device
 
-trainIters(encoderRNN, decoderRNN, 7500; print_every=100)
+trainIters(encoderRNN, decoderRNN, 10000; print_every=1000)
 
-testing = [join(split(x[1], " "), "") for x in pairs[200001:202000]]
+testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:(N_TRAINING + 9999)]]
 
-testResults = [ev_word(w, encoderRNN, decoderRNN) for w in testing]
+testResults = @showprogress [ev_word(w, encoderRNN, decoderRNN) for w in testing]
 
-print(str(mean(testResults)))
+println((mean(testResults)))
