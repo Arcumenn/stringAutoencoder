@@ -1,22 +1,23 @@
-# %%
-from __future__ import unicode_literals, print_function, division
-from io import open
-import sys
+from __future__ import division, print_function, unicode_literals
+
+import math
 import random
+import sys
+import time
+from io import open
+
+import Levenshtein
+import pandas as pd
 import torch
 import torch.nn as nn
-from torch import optim
 import torch.nn.functional as F
-import pandas as pd
-import Levenshtein
 from numpy import mean
-import time
-import math
+from torch import optim
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MAX_LENGTH = 25
-N_TRAINING = 2000
+N_TRAINING = 50000
 # N_TRAINING = 200000
 hidden_size = 256
 
@@ -82,7 +83,8 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
 
     decoder_hidden = encoder_hidden
 
-    use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
+    # use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
+    use_teacher_forcing = True
 
     if use_teacher_forcing:
         # Teacher forcing: Feed the target as the next input
@@ -119,8 +121,9 @@ def trainIters(encoder, decoder, n_iters, print_every=1000, learning_rate=0.01):
 
     encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
     decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
-    training_pairs = [tensorsFromPair(random.choice(pairs[:N_TRAINING]))
-                      for i in range(n_iters)]
+
+    training_pairs = [tensorsFromPair(pairs[i]) for i in range(n_iters)]
+    # training_pairs = [tensorsFromPair(random.choice(pairs[:N_TRAINING])) for i in range(n_iters)]
     criterion = nn.NLLLoss()
 
     for iter in range(1, n_iters + 1):
@@ -297,25 +300,22 @@ print(input_lang.word2index)
 
 teacher_forcing_ratio = 0.5
 
-"""
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 
-trainIters(encoder1, decoder1, 7500, print_every=100)
+trainIters(encoder1, decoder1, 7500, print_every=500)
 # trainIters(encoder1, decoder1, 75000, print_every=1000) (values from the original code)
 
-testing = ["".join(x[0].split(" ")) for x in pairs[N_TRAINING:]]
+testing = ["".join(x[0].split(" ")) for x in pairs[N_TRAINING:(N_TRAINING + 10000)]]
 
 testResults = [evWord(str(w), encoder1, decoder1) for w in testing]
 
 print(str(mean(testResults)))
 
+
+""""
 embedding = [getEmbedding(encoder1, decoder1, p[0]) for p in pairs[1:1000]]
 
 pd.DataFrame(embedding).to_csv("../data/embedding.csv",
                                header=False, index=False)
 """
-
-tens_test = torch.tensor([2, 3, 4, 1], dtype=torch.long, device=device).view(-1, 1)
-emb = nn.Embedding(26, 256)
-print(emb(tens_test).view(1, 1, -1))
