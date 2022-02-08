@@ -4,9 +4,10 @@ using Flux
 using ProgressMeter
 using Statistics
 using StringDistances
+using Zygote
 
 const MAX_LENGTH = 25
-const N_TRAINING = 50000
+const N_TRAINING = 200000
 # const N_TRAINING = 200000 (value from the original code)
 const hidden_size = 256
 const SOS_token = 1
@@ -44,7 +45,7 @@ function readLangs(lang1::String, lang2::String, reverse::Bool=false
     println("Reading lines...")
     # Read the file and split into lines
     lines::AbstractMatrix = 
-        DelimitedFiles.readdlm("./data/$(lang1)-$(lang2).txt", '\t', AbstractString)
+        DelimitedFiles.readdlm("../data/$(lang1)-$(lang2).txt", '\t', AbstractString)
 
     # Reverse pairs, make Lang instances
     if reverse
@@ -132,7 +133,6 @@ end # vectorFromSentence
 
 function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0.01)
     
-
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0   # Reset every plot_every
 
@@ -150,7 +150,7 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
         target = training_pair[2]
         
         gs = gradient(ps) do 
-            loss = mean(train(input, target, decoder, encoder))
+            loss = train(input, target, encoder, decoder)  
             return loss
         end # do
 
@@ -277,9 +277,10 @@ decoderRNN = Chain(Flux.Embedding(output_lang.n_words, hidden_size), x -> relu.(
                 GRU(hidden_size, hidden_size), 
                 Dense(hidden_size, output_lang.n_words - 1)) |> device
 
-trainIters(encoderRNN, decoderRNN, 10000; print_every=1000)
+trainIters(encoderRNN, decoderRNN, 75000; print_every=5000)
 
-testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:(N_TRAINING + 9999)]]
+testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:end]]
+# testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:(N_TRAINING + 9999)]]
 
 testResults = @showprogress [ev_word(w, encoderRNN, decoderRNN) for w in testing]
 
