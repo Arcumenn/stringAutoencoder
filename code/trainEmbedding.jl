@@ -218,6 +218,10 @@ function train(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float6
             end  # if
         end # for
     end # if/else
+    output_matrix::AbstractMatrix = hcat(outputs...)
+    onehot_targets = Flux.onehotbatch(targets, 1:(input_lang.n_words - 1))
+    loss::Float64 = Flux.logitcrossentropy(output_matrix, onehot_targets)
+    return loss 
 end # train
 
 
