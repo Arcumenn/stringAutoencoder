@@ -170,8 +170,11 @@ end # trainIters
 
 function train(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float64
 
-    loss::Float64 = 0.0
     target_length = length(target)
+    # outputs = Zygote.Buffer(1:target_length, Matrix{Float32})
+    # targets = Zygote.Buffer(1:target_length, Int64)
+    outputs::Vector{Matrix{Float32}} = []
+    targets::Vector{Int64} = []
 
     for letter in input
         encoder(letter)
@@ -187,18 +190,33 @@ function train(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float6
         # Teacher forcing: Feed the target as the next input
         for i in 1:target_length
             output = decoder(decoder_input)
-            loss += Flux.logitbinarycrossentropy(output, target[i])
+            # outputs[i] = output[:,:]
+            # targets[i] = target[i]
+            Zygote.ignore() do
+                push!(outputs, output[:, :])
+                push!(targets, target[i])
             decoder_input = target[i]  # Teacher forcing
+            end # do
         end # for
-        return loss / target_length
     else
         for i in 1:target_length
             output = decoder(decoder_input)
-            loss += Flux.logitbinarycrossentropy(output, target[i])
             topv, topi = findmax(output)
-            topi == EOS_token && break
+            # outputs[i] = output[:,:]
+            # targets[i] = target[i]
+            Zygote.ignore() do
+                push!(outputs, output[:, :])
+                push!(targets, target[i])
+            end # do
+            decoder_input = topi
+            if topi == EOS_token
+                Zygote.ignore() do
+                    outputs = outputs[1:i]
+                    targets = targets[1:i]
+                end # do
+                break
+            end  # if
         end # for
-        return loss / target_length
     end # if/else
 end # train
 
