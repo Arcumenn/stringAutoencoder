@@ -266,11 +266,12 @@ show(word2index_dict)
 device = cpu
 
 encoderRNN = Chain(Flux.Embedding(input_lang.n_words - 1, hidden_size), 
-                   GRU(hidden_size, hidden_size)) |> device
+                   GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform)) |> device
 
 decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> relu.(x), 
-                   GRU(hidden_size, hidden_size), 
-                   Dense(hidden_size, output_lang.n_words - 1)) |> device
+                   GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform), 
+                   Dense(hidden_size, output_lang.n_words - 1, init=Flux.kaiming_uniform)
+                   ) |> device
 
 trainIters(encoderRNN, decoderRNN, 75000; print_every=500)
 
