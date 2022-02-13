@@ -8,7 +8,6 @@ using Zygote
 
 const MAX_LENGTH = 25
 const N_TRAINING = 200000
-# const N_TRAINING = 200000 (value from the original code)
 const hidden_size = 256
 const SOS_token = 1
 const EOS_token = 2
@@ -137,10 +136,10 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
     plot_loss_total = 0   # Reset every plot_every
 
     optimizer = Descent(learning_rate)
-    
+
     local loss
     ps = Flux.params(encoder, decoder)
-    # training_pairs = [vectorsFromPair(pairs[i]) for i in 1:n_iters]
+    # training_pairs = [vectorsFromPair(word_pairs[i]) for i in 1:n_iters]
     training_pairs = [vectorsFromPair(rand(word_pairs[1:N_TRAINING])) for i in 1:n_iters]
     
     p = Progress(Int(floor(n_iters / print_every)), showspeed=true)
@@ -152,7 +151,7 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
         loss, back = Flux.pullback(ps) do 
             model_loss(input, target, encoder, decoder)  
         end # do
-
+        
         grad = back(1f0)
 
         print_loss_total += loss
@@ -163,7 +162,7 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
             print_loss_total = 0
             next!(p; showvalues = [(:Iteration, iter), (:LossAverage, print_loss_avg)])
         end # if
-
+        
         Flux.Optimise.update!(optimizer, ps, grad)
     end # for
 end # trainIters
@@ -224,14 +223,19 @@ end # ev_word
 
 
 function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
-    input = vectorFromSentence(input_lang, sentence)
+
+    # reset hidden state of encoder
     encoder_hidden = reshape(zeros(hidden_size), hidden_size, 1)
     encoder[2].state = encoder_hidden
 
+    input = vectorFromSentence(input_lang, sentence)
+
+    # let encoder encode the word
     for letter in input
         encoder(letter)
     end # for
 
+    # set first input and hidden state of decoder
     decoder_input::Int64 = SOS_token
     decoder[3].state = encoder[2].state
 
@@ -240,16 +244,18 @@ function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
     for i in 1:max_length
         decoder_output = decoder(decoder_input)
         topv, topi = findmax(decoder_output)
-        decoder_input = topi
-        if decoder_input == EOS_token
+        if topi == EOS_token
             push!(decoded_words, "<EOS>")
             break
         else
             push!(decoded_words, output_lang.index2word[topi])
         end # if/else
+        decoder_input = topi
     end # for
     return decoded_words
 end # evaluate
+
+
 
 
 
@@ -263,10 +269,10 @@ encoderRNN = Chain(Flux.Embedding(input_lang.n_words - 1, hidden_size),
                    GRU(hidden_size, hidden_size)) |> device
 
 decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> relu.(x), 
-                GRU(hidden_size, hidden_size), 
-                Dense(hidden_size, output_lang.n_words - 1)) |> device
+                   GRU(hidden_size, hidden_size), 
+                   Dense(hidden_size, output_lang.n_words - 1)) |> device
 
-trainIters(encoderRNN, decoderRNN, 75000; print_every=5000)
+trainIters(encoderRNN, decoderRNN, 75000; print_every=500)
 
 testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:end]]
 # testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:(N_TRAINING + 9999)]]
