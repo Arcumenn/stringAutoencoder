@@ -149,10 +149,11 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
         input = training_pair[1]
         target = training_pair[2]
         
-        gs = gradient(ps) do 
-            loss = train(input, target, encoder, decoder)  
-            return loss
+        loss, back = Flux.pullback(ps) do 
+            model_loss(input, target, encoder, decoder)  
         end # do
+
+        grad = back(1f0)
 
         print_loss_total += loss
         plot_loss_total += loss
@@ -163,7 +164,7 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
             next!(p; showvalues = [(:Iteration, iter), (:LossAverage, print_loss_avg)])
         end # if
 
-        Flux.Optimise.update!(optimizer, ps, gs)
+        Flux.Optimise.update!(optimizer, ps, grad)
     end # for
 end # trainIters
 
