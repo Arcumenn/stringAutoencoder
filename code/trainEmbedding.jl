@@ -169,61 +169,49 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
 end # trainIters
 
 
-function train(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float64
+function model_loss(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float64
 
-    target_length = length(target)
-    # outputs = Zygote.Buffer(1:target_length, Matrix{Float32})
-    # targets = Zygote.Buffer(1:target_length, Int64)
-    outputs::Vector{Matrix{Float32}} = []
-    targets::Vector{Int64} = []
+    # reset hidden state of encoder
+    encoder[2].state = reshape(zeros(hidden_size), hidden_size, 1)
 
+    word_length::Int64 = length(target)
+    alphabet_range::UnitRange = 1:(input_lang.n_words - 1)
+    loss::Float64 = 0.0
+
+    # let encoder encode the word
     for letter in input
         encoder(letter)
     end # for
 
+    # set input and hidden state of decoder
     decoder_input::Int64 = SOS_token
     decoder[3].state = encoder[2].state
 
     use_teacher_forcing = rand() < teacher_forcing_ratio ? true : false
-    # use_teacher_forcing = true
 
     if use_teacher_forcing
         # Teacher forcing: Feed the target as the next input
-        for i in 1:target_length
+        for i in 1:word_length
             output = decoder(decoder_input)
-            # outputs[i] = output[:,:]
-            # targets[i] = target[i]
-            Zygote.ignore() do
-                push!(outputs, output[:, :])
-                push!(targets, target[i])
-            decoder_input = target[i]  # Teacher forcing
-            end # do
+            onehot_target = Flux.onehot(target[i], alphabet_range)
+            loss += Flux.logitcrossentropy(output, onehot_target)
+            decoder_input = target[i]
         end # for
+
     else
-        for i in 1:target_length
+        for i in 1:word_length
             output = decoder(decoder_input)
             topv, topi = findmax(output)
-            # outputs[i] = output[:,:]
-            # targets[i] = target[i]
-            Zygote.ignore() do
-                push!(outputs, output[:, :])
-                push!(targets, target[i])
-            end # do
+            onehot_target = Flux.onehot(target[i], alphabet_range)
+            loss += Flux.logitcrossentropy(output, onehot_target)
             decoder_input = topi
-            if topi == EOS_token
-                Zygote.ignore() do
-                    outputs = outputs[1:i]
-                    targets = targets[1:i]
-                end # do
+            if decoder_input == EOS_token 
                 break
-            end  # if
+            end # if
         end # for
     end # if/else
-    output_matrix::AbstractMatrix = hcat(outputs...)
-    onehot_targets = Flux.onehotbatch(targets, 1:(input_lang.n_words - 1))
-    loss::Float64 = Flux.logitcrossentropy(output_matrix, onehot_targets)
-    return loss 
-end # train
+    return loss / word_length
+end # model_loss
 
 
 function ev_word(w, encoder, decoder)
