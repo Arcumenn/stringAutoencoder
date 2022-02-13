@@ -262,7 +262,7 @@ device = cpu
 encoderRNN = Chain(Flux.Embedding(input_lang.n_words - 1, hidden_size), 
                    GRU(hidden_size, hidden_size)) |> device
 
-decoderRNN = Chain(Flux.Embedding(output_lang.n_words, hidden_size), x -> relu.(x), 
+decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> relu.(x), 
                 GRU(hidden_size, hidden_size), 
                 Dense(hidden_size, output_lang.n_words - 1)) |> device
 
