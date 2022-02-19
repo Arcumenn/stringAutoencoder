@@ -256,7 +256,19 @@ function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
 end # evaluate
 
 
+function get_embedding(encoder, decoder, sentence, max_length=MAX_LENGTH)
+    input = vectorFromSentence(input_lang, sentence)
 
+    # reset hidden state of encoder
+    encoder_hidden = reshape(zeros(hidden_size), hidden_size, 1)
+    encoder[2].state = encoder_hidden
+
+    for letter in input
+        encoder(letter)
+    end # for
+
+    return encoder[2].state[:,]
+end # get_embedding
 
 
 input_lang, output_lang, word_pairs = prepareData("asjpIn", "asjpOut", false)
