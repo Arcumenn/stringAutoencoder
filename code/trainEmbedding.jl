@@ -71,7 +71,15 @@ mutable struct Lang
     Lang(name::String) = new(name, Dict{String, Int64}(), Dict{String, Int64}(),
                              Dict(1 => "SOS", 2 => "EOS"), 3)
 
-end
+end # Language
+
+struct Autoencoder
+    encoder::Chain
+    decoder::Chain
+    input_lang::Language
+    output_lang::Language
+    word_pairs::Vector{Vector{String}}
+end # Autoencoder
 
 
 """
