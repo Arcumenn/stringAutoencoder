@@ -278,32 +278,41 @@ function get_embedding(encoder, decoder, sentence, max_length=MAX_LENGTH)
 end # get_embedding
 
 
-input_lang, output_lang, word_pairs = prepareData("asjpIn", "asjpOut", false)
-alphabet_range = 1:(input_lang.n_words - 1)
-word2index_dict = sort(collect(input_lang.word2index), by=x->x[2])
-show(word2index_dict)
+function train_model(;iters=75000, learning_rate=0.01, print_interval=1000, device=cpu
+                    )::Autoencoder
 
-device = cpu
+    input_lang, output_lang, word_pairs = prepare_data("asjpIn", "asjpOut", false)
 
 encoderRNN = Chain(Flux.Embedding(input_lang.n_words - 1, hidden_size), 
                    GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform)) |> device
 
 decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> relu.(x), 
                    GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform), 
-                   Dense(hidden_size, output_lang.n_words - 1, init=Flux.kaiming_uniform)
+                       Dense(hidden_size, output_lang.n_words - 1, 
+                       init=Flux.kaiming_uniform)
                    ) |> device
 
-trainIters(encoderRNN, decoderRNN, 7500; print_every=500)
+    train_iters(encoderRNN, decoderRNN, word_pairs, (input_lang, output_lang), iters, 
+                1:(input_lang.n_words - 1), Float32(learning_rate), Int32(print_interval))
 
-# testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:end]]
-testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:(N_TRAINING + 4999)]]
-
-testResults = @showprogress [ev_word(w, encoderRNN, decoderRNN) for w in testing]
-
-println((mean(testResults)))
-
-embedding = [get_embedding(encoderRNN, decoderRNN, p[1]) for p in word_pairs[1:1000]]
+    return Autoencoder(encoderRNN, decoderRNN, input_lang, output_lang, word_pairs)
+end # train_model
 
 
-writedlm("./data/embedding.csv", embedding, ",")
-df = DataFrame(embedding, :auto)
+function test_model(m::Autoencoder)::Nothing
+    # testing = [join(split(x[1], " "), "") for x in words[N_TRAINING:end]]
+    testing = [join(split(x[1], " "), "") 
+               for x in m.word_pairs[N_TRAINING:(N_TRAINING+2500)]]
+    testResults = @showprogress [ev_word(w, m) for w in testing]
+    println("Mean test results: $(mean(testResults))")
+end # test_model
+
+
+function save_embedding(m::Autoencoder; number_of_pairs=1000, path="../data/embedding.csv"
+                       )::Nothing
+
+    embedding = [get_embedding(m.encoder, m.input_lang, p[1]) 
+                 for p in m.word_pairs[1:number_of_pairs]]
+    writedlm(path, embedding, ",")
+end # save_embedding
+
