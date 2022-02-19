@@ -1,4 +1,3 @@
-using Dates
 using DelimitedFiles
 using Flux
 using ProgressMeter
@@ -44,7 +43,7 @@ function readLangs(lang1::String, lang2::String, reverse::Bool=false
     println("Reading lines...")
     # Read the file and split into lines
     lines::AbstractMatrix = 
-        DelimitedFiles.readdlm("../data/$(lang1)-$(lang2).txt", '\t', AbstractString)
+        DelimitedFiles.readdlm("./data/$(lang1)-$(lang2).txt", '\t', AbstractString)
 
     # Reverse pairs, make Lang instances
     if reverse
@@ -163,19 +162,19 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
             next!(p; showvalues = [(:Iteration, iter), (:LossAverage, print_loss_avg)])
         end # if
         
+        # update the model parameters with the optimizer based on the calculated gradients
         Flux.Optimise.update!(optimizer, ps, grad)
+
+        # reset hidden state of encoder
+        encoder[2].state = reshape(zeros(hidden_size), hidden_size, 1)
     end # for
 end # trainIters
 
 
-function model_loss(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float64
-
-    # reset hidden state of encoder
-    encoder[2].state = reshape(zeros(hidden_size), hidden_size, 1)
+function model_loss(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float32
 
     word_length::Int64 = length(target)
-    alphabet_range::UnitRange = 1:(input_lang.n_words - 1)
-    loss::Float64 = 0.0
+    loss::Float32 = 0.0
 
     # let encoder encode the word
     for letter in input
@@ -272,6 +271,7 @@ end # get_embedding
 
 
 input_lang, output_lang, word_pairs = prepareData("asjpIn", "asjpOut", false)
+alphabet_range = 1:(input_lang.n_words - 1)
 word2index_dict = sort(collect(input_lang.word2index), by=x->x[2])
 show(word2index_dict)
 
@@ -285,11 +285,17 @@ decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> re
                    Dense(hidden_size, output_lang.n_words - 1, init=Flux.kaiming_uniform)
                    ) |> device
 
-trainIters(encoderRNN, decoderRNN, 75000; print_every=500)
+trainIters(encoderRNN, decoderRNN, 7500; print_every=500)
 
-testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:end]]
-# testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:(N_TRAINING + 9999)]]
+# testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:end]]
+testing = [join(split(x[1], " "), "") for x in word_pairs[N_TRAINING:(N_TRAINING + 4999)]]
 
 testResults = @showprogress [ev_word(w, encoderRNN, decoderRNN) for w in testing]
 
 println((mean(testResults)))
+
+embedding = [get_embedding(encoderRNN, decoderRNN, p[1]) for p in word_pairs[1:1000]]
+
+
+writedlm("./data/embedding.csv", embedding, ",")
+df = DataFrame(embedding, :auto)
