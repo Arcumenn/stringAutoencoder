@@ -13,62 +13,67 @@ const EOS_token = 2
 const teacher_forcing_ratio = 0.5
 
 
-function prepareData(lang1, lang2, reverse::Bool=false
-                    )::Tuple{Lang, Lang, Vector{Vector{String}}}
+function prepare_data(lang1, lang2, reverse::Bool=false
+                     )::Tuple{Language, Language, Vector{Vector{String}}}
 
-    input_lang, output_lang, lines = readLangs(lang1, lang2, reverse)
+    input_lang, output_lang, lines = readlangs(lang1, lang2, reverse)
     println("Read $(Int(length(lines) / 2)) word pairs")
 
     pairs::Vector{Vector{String}} = [convert(Vector{String}, pair) for pair 
-                                     in eachrow(lines) if filterPair(pair)]
+                                     in eachrow(lines) if filter_pair(pair)]
 
     println("Trimmed to $(length(pairs)) word pairs")
     println("Counting sounds...")
     for pair in pairs
-        addSentence!(input_lang, pair[1])
-        addSentence!(output_lang, pair[2])
+        addsentence!(input_lang, pair[1])
+        addsentence!(output_lang, pair[2])
     end # for
 
     println("Counted sounds:")
     println(input_lang.name, input_lang.n_words)
     println(output_lang.name, output_lang.n_words)
 
+    # show the letters of the input language & their corresponding indeces
+    word2index_dict = sort(collect(input_lang.word2index), by=x->x[2])
+    show(word2index_dict)
+    println()
+
     input_lang, output_lang, pairs
-end
+end # prepare_data
 
 
-function readLangs(lang1::String, lang2::String, reverse::Bool=false
-                  )::Tuple{Lang, Lang,AbstractMatrix}
+function readlangs(lang1::String, lang2::String, reverse::Bool=false
+                  )::Tuple{Language, Language, AbstractMatrix}
 
     println("Reading lines...")
     # Read the file and split into lines
     lines::AbstractMatrix = 
         DelimitedFiles.readdlm("./data/$(lang1)-$(lang2).txt", '\t', AbstractString)
 
-    # Reverse pairs, make Lang instances
+    # Reverse pairs, make Language instances
     if reverse
         @inbounds for r = 1:size(lines, 1)
             lines[r, 1], lines[r, 2] = lines[r, 2], lines[r, 1]
         end # @inbounds
-        input_lang = Lang(lang2)
-        output_lang = Lang(lang1)
+        input_lang = Language(lang2)
+        output_lang = Language(lang1)
     else
-        input_lang = Lang(lang1)
-        output_lang = Lang(lang2)
+        input_lang = Language(lang1)
+        output_lang = Language(lang2)
     end # if/else
     
     input_lang, output_lang, lines
-end
+end # readlangs
 
 
-mutable struct Lang
+mutable struct Language
     name::String
-    word2index::Dict{String, Int64}
-    word2count::Dict{String, Int64}
-    index2word::Dict{Int64, String}
-    n_words::Int64
+    word2index::Dict{String, Int32}
+    word2count::Dict{String, Int32}
+    index2word::Dict{Int32, String}
+    n_words::Int32
 
-    Lang(name::String) = new(name, Dict{String, Int64}(), Dict{String, Int64}(),
+    Language(name::String) = new(name, Dict{String, Int32}(), Dict{String, Int32}(),
                              Dict(1 => "SOS", 2 => "EOS"), 3)
 
 end # Language
@@ -83,24 +88,24 @@ end # Autoencoder
 
 
 """
-    addSentence(lang::Lang, sentence)
+    addsentence(lang::Language, sentence)
 
 Function that iterates through a sentence to add all the words in the sentence to a lang
 struct.
 """
-function addSentence!(lang::Lang, sentence::String)
+function addsentence!(lang::Language, sentence::String)
     for word in split(sentence)
-        addWord!(lang, word)
+        addword!(lang, word)
     end # for
-end # addSentence
+end # addsentence
 
 
 """
-    addWord!(lang::Lang, word)
+    addword!(lang::Language, word)
 
-Function that adds a word to a Lang struct & updates the fields of the language accordingly
+Function that adds a word to a Language struct & updates the fields of the language accordingly
 """
-function addWord!(lang::Lang, word::SubString{String})
+function addword!(lang::Language, word::SubString{String})
     if !(haskey(lang.word2index, word))
         lang.word2index[word] = lang.n_words
         lang.word2count[word] = 1
@@ -109,45 +114,47 @@ function addWord!(lang::Lang, word::SubString{String})
     else
         lang.word2count[word] += 1
     end # if/else
-end # addWord!
+end # addword!
 
 
 """
-    filterPair(p::SubArray{String})::Bool
+    filter_pair(p::SubArray{String})::Bool
 
 This function checks if either of the 2 words in the pair exceeds the specified maximum
 length. Returns true if both words are shorter then the maximum length; false otherwise. 
 """
-function filterPair(p::SubArray)::Bool
+function filter_pair(p::SubArray)::Bool
     return length(split(p[1])) < MAX_LENGTH && length(split(p[2])) < MAX_LENGTH
-end # filterPair
+end # filter_pair
 
 
-function vectorsFromPair(pair::Vector{String})::Tuple{Vector{Int64}, Vector{Int64}}
-    input_vec = vectorFromSentence(input_lang, pair[1])
-    target_vec = vectorFromSentence(output_lang, pair[2])
+function pairs_to_vectors(pair::Vector{String}, languages::Tuple{Language, Language}
+                        )::Tuple{Vector{Int32}, Vector{Int32}}
+
+    input_vec = word_to_vector(languages[1], pair[1])
+    target_vec = word_to_vector(languages[2], pair[2])
     return input_vec, target_vec
-end # vectorsFromPair
+end # pairs_to_vectors
 
 
-function vectorFromSentence(lang::Lang, sentence::String)::Vector{Int64}
-    indeces = [lang.word2index[word] for word in split(sentence)]
+function word_to_vector(lang::Language, word::String)::Vector{Int32}
+    indeces = [lang.word2index[letter] for letter in split(word)]
     append!(indeces, EOS_token)
     return indeces
-end # vectorFromSentence
+end # word_to_vector
 
 
-function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0.01)
+function train_iters(encoder, decoder, word_pairs, langs::Tuple{Language, Language}, n_iters, 
+                     alphabet_range::UnitRange, learning_rate::Float32, print_every::Int32)
     
-    print_loss_total = 0  # Reset every print_every
-    plot_loss_total = 0   # Reset every plot_every
+    print_loss_total::Float32 = 0.0
 
     optimizer = Descent(learning_rate)
 
-    local loss
+    loss::Float32 = 0.0
+
     ps = Flux.params(encoder, decoder)
-    # training_pairs = [vectorsFromPair(word_pairs[i]) for i in 1:n_iters]
-    training_pairs = [vectorsFromPair(rand(word_pairs[1:N_TRAINING])) for i in 1:n_iters]
+    training_pairs = [pairs_to_vectors(rand(word_pairs[1:N_TRAINING]), langs) for i in 1:n_iters]
     
     p = Progress(Int(floor(n_iters / print_every)), showspeed=true)
     for iter in 1:n_iters
@@ -156,18 +163,17 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
         target = training_pair[2]
         
         loss, back = Flux.pullback(ps) do 
-            model_loss(input, target, encoder, decoder)  
+            model_loss(input, target, encoder, decoder, alphabet_range)  
         end # do
         
         grad = back(1f0)
 
         print_loss_total += loss
-        plot_loss_total += loss
 
         if iter % print_every == 0
-            print_loss_avg = print_loss_total / print_every
+            next!(p; showvalues = [(:Iteration, iter), 
+                                   (:LossAverage, print_loss_total / print_every)])
             print_loss_total = 0
-            next!(p; showvalues = [(:Iteration, iter), (:LossAverage, print_loss_avg)])
         end # if
         
         # update the model parameters with the optimizer based on the calculated gradients
@@ -176,12 +182,13 @@ function trainIters(encoder, decoder, n_iters; print_every=1000, learning_rate=0
         # reset hidden state of encoder
         encoder[2].state = reshape(zeros(hidden_size), hidden_size, 1)
     end # for
-end # trainIters
+end # train_iters
 
 
-function model_loss(input, target, encoder, decoder; max_length = MAX_LENGTH)::Float32
+function model_loss(input::Vector{Int32}, target::Vector{Int32}, encoder, decoder, 
+                    alphabet_range::UnitRange; max_length = MAX_LENGTH)::Float32
 
-    word_length::Int64 = length(target)
+    word_length::Int32 = length(target)
     loss::Float32 = 0.0
 
     # let encoder encode the word
@@ -190,7 +197,7 @@ function model_loss(input, target, encoder, decoder; max_length = MAX_LENGTH)::F
     end # for
 
     # set input and hidden state of decoder
-    decoder_input::Int64 = SOS_token
+    decoder_input::Int32 = SOS_token
     decoder[3].state = encoder[2].state
 
     use_teacher_forcing = rand() < teacher_forcing_ratio ? true : false
@@ -220,42 +227,42 @@ function model_loss(input, target, encoder, decoder; max_length = MAX_LENGTH)::F
 end # model_loss
 
 
-function ev_word(w, encoder, decoder)
+function ev_word(w, m::Autoencoder)
     input_str = join(w, " ")
-    output_str = evaluate(encoder, decoder, input_str)
+    output_str = evaluate(input_str, m)
     w_out = join(output_str[1:end-1], "")
     distance = Levenshtein()(w, w_out)
     return distance / max(length(w), length(w_out))
 end # ev_word
 
 
-function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
+function evaluate(word, m::Autoencoder; max_length=MAX_LENGTH)
 
     # reset hidden state of encoder
     encoder_hidden = reshape(zeros(hidden_size), hidden_size, 1)
-    encoder[2].state = encoder_hidden
+    m.encoder[2].state = encoder_hidden
 
-    input = vectorFromSentence(input_lang, sentence)
+    input = word_to_vector(m.input_lang, word)
 
     # let encoder encode the word
     for letter in input
-        encoder(letter)
+        m.encoder(letter)
     end # for
 
     # set first input and hidden state of decoder
-    decoder_input::Int64 = SOS_token
-    decoder[3].state = encoder[2].state
+    decoder_input::Int32 = SOS_token
+    m.decoder[3].state = m.encoder[2].state
 
     decoded_words::Vector{String} = []
 
     for i in 1:max_length
-        decoder_output = decoder(decoder_input)
+        decoder_output = m.decoder(decoder_input)
         topv, topi = findmax(decoder_output)
         if topi == EOS_token
             push!(decoded_words, "<EOS>")
             break
         else
-            push!(decoded_words, output_lang.index2word[topi])
+            push!(decoded_words, m.output_lang.index2word[topi])
         end # if/else
         decoder_input = topi
     end # for
@@ -263,8 +270,8 @@ function evaluate(encoder, decoder, sentence; max_length=MAX_LENGTH)
 end # evaluate
 
 
-function get_embedding(encoder, decoder, sentence, max_length=MAX_LENGTH)
-    input = vectorFromSentence(input_lang, sentence)
+function get_embedding(encoder, lang, word)
+    input = word_to_vector(lang, word)
 
     # reset hidden state of encoder
     encoder_hidden = reshape(zeros(hidden_size), hidden_size, 1)
