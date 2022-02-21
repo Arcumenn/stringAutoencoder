@@ -13,6 +13,28 @@ const EOS_token = 2
 const teacher_forcing_ratio = 0.5
 
 
+mutable struct Language
+    name::String
+    word2index::Dict{String, Int32}
+    word2count::Dict{String, Int32}
+    index2word::Dict{Int32, String}
+    n_words::Int32
+
+    Language(name::String) = new(name, Dict{String, Int32}(), Dict{String, Int32}(),
+                             Dict(1 => "SOS", 2 => "EOS"), 3)
+
+end # Language
+
+
+struct Autoencoder
+    encoder::Chain
+    decoder::Chain
+    input_lang::Language
+    output_lang::Language
+    word_pairs::Vector{Vector{String}}
+end # Autoencoder
+
+
 function prepare_data(lang1, lang2, reverse::Bool=false
                      )::Tuple{Language, Language, Vector{Vector{String}}}
 
@@ -66,27 +88,6 @@ function readlangs(lang1::String, lang2::String, reverse::Bool=false
 end # readlangs
 
 
-mutable struct Language
-    name::String
-    word2index::Dict{String, Int32}
-    word2count::Dict{String, Int32}
-    index2word::Dict{Int32, String}
-    n_words::Int32
-
-    Language(name::String) = new(name, Dict{String, Int32}(), Dict{String, Int32}(),
-                             Dict(1 => "SOS", 2 => "EOS"), 3)
-
-end # Language
-
-struct Autoencoder
-    encoder::Chain
-    decoder::Chain
-    input_lang::Language
-    output_lang::Language
-    word_pairs::Vector{Vector{String}}
-end # Autoencoder
-
-
 """
     addsentence(lang::Language, sentence)
 
@@ -129,7 +130,7 @@ end # filter_pair
 
 
 function pairs_to_vectors(pair::Vector{String}, languages::Tuple{Language, Language}
-                        )::Tuple{Vector{Int32}, Vector{Int32}}
+                         )::Tuple{Vector{Int32}, Vector{Int32}}
 
     input_vec = word_to_vector(languages[1], pair[1])
     target_vec = word_to_vector(languages[2], pair[2])
@@ -285,15 +286,22 @@ function get_embedding(encoder, lang, word)
 end # get_embedding
 
 
-function train_model(;iters=75000, learning_rate=0.01, print_interval=1000, device=cpu
+"""
+    train_model(;iters=75000, learning_rate=0.01, print_interval=1000, device=cpu
+               )::Autoencoder
+
+Train an autoencoder. Set keyword arguments to use custom values for the number of
+iterations, the learning rate, the print interval and the device (cpu/gpu).
+"""
+function train_model(;iters=75000, learning_rate=0.01, print_interval=500, device=cpu
                     )::Autoencoder
 
     input_lang, output_lang, word_pairs = prepare_data("asjpIn", "asjpOut", false)
 
-encoderRNN = Chain(Flux.Embedding(input_lang.n_words - 1, hidden_size), 
+    encoderRNN = Chain(Flux.Embedding(input_lang.n_words - 1, hidden_size), 
                    GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform)) |> device
 
-decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> relu.(x), 
+    decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> relu.(x), 
                    GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform), 
                        Dense(hidden_size, output_lang.n_words - 1, 
                        init=Flux.kaiming_uniform)
@@ -306,17 +314,27 @@ decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> re
 end # train_model
 
 
-function test_model(m::Autoencoder)::Nothing
-    # testing = [join(split(x[1], " "), "") for x in words[N_TRAINING:end]]
-    testing = [join(split(x[1], " "), "") 
-               for x in m.word_pairs[N_TRAINING:(N_TRAINING+2500)]]
+"""
+    test_model(m::Autoencoder; test_size::Int64=0)::Nothing
+
+Test a Autoencoder model with word pairs that have not been used during training.
+Prints the mean of the test results.
+"""
+function test_model(m::Autoencoder; test_size::Int64=0)::Nothing
+    if test_size == 0 || (N_TRAINING + test_size  > length(m.word_pairs))
+        testing = [join(split(x[1], " "), "") for x in m.word_pairs[N_TRAINING:end]]
+    else
+        testing = [join(split(x[1], " "), "") 
+                   for x in m.word_pairs[N_TRAINING:(N_TRAINING + test_size)]]
+    end # if/else
     testResults = @showprogress [ev_word(w, m) for w in testing]
-    println("Mean test results: $(mean(testResults))")
+    println("Mean Levenshtein distance between prediction and target letter: $(mean(testResults))")
 end # test_model
 
 
-function save_embedding(m::Autoencoder; number_of_pairs=1000, path="../data/embedding.csv"
-                       )::Nothing
+"""
+    save_embedding(m::Autoencoder; words=1000, path="../data/embedding.csv"
+                  )::Nothing
 
 Saves the embeddings of a specific number of words (default: 1000).
 """
