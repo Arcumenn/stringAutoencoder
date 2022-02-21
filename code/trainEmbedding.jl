@@ -281,7 +281,7 @@ function get_embedding(encoder, lang, word)
         encoder(letter)
     end # for
 
-    return encoder[2].state[:,]
+    return encoder[2].state
 end # get_embedding
 
 
@@ -318,8 +318,12 @@ end # test_model
 function save_embedding(m::Autoencoder; number_of_pairs=1000, path="../data/embedding.csv"
                        )::Nothing
 
-    embedding = [get_embedding(m.encoder, m.input_lang, p[1]) 
-                 for p in m.word_pairs[1:number_of_pairs]]
+Saves the embeddings of a specific number of words (default: 1000).
+"""
+function save_embedding(m::Autoencoder; words=1000, path="../data/embedding.csv"
+                       )::Nothing
+
+    embedding = [get_embedding(m.encoder, m.input_lang, p[1])[:,] 
+                 for p in m.word_pairs[1:words]]
     writedlm(path, embedding, ",")
 end # save_embedding
-
