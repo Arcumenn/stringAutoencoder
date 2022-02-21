@@ -35,10 +35,10 @@ struct Autoencoder
 end # Autoencoder
 
 
-function prepare_data(lang1, lang2, reverse::Bool=false
+function prepare_data(lang1, lang2, reverse::Bool, path::String
                      )::Tuple{Language, Language, Vector{Vector{String}}}
 
-    input_lang, output_lang, lines = readlangs(lang1, lang2, reverse)
+    input_lang, output_lang, lines = readlangs(lang1, lang2, reverse, path)
     println("Read $(Int(length(lines) / 2)) word pairs")
 
     pairs::Vector{Vector{String}} = [convert(Vector{String}, pair) for pair 
@@ -64,13 +64,14 @@ function prepare_data(lang1, lang2, reverse::Bool=false
 end # prepare_data
 
 
-function readlangs(lang1::String, lang2::String, reverse::Bool=false
-                  )::Tuple{Language, Language, AbstractMatrix}
+function readlangs(lang1::String, lang2::String, reverse::Bool=false, 
+                   path_to_data::String=".")::Tuple{Language, Language, AbstractMatrix}
 
     println("Reading lines...")
     # Read the file and split into lines
+    path::String = path_to_data * "/$(lang1)-$(lang2).txt"
     lines::AbstractMatrix = 
-        DelimitedFiles.readdlm("./data/$(lang1)-$(lang2).txt", '\t', AbstractString)
+        DelimitedFiles.readdlm(path, '\t', AbstractString)
 
     # Reverse pairs, make Language instances
     if reverse
@@ -291,21 +292,22 @@ end # get_embedding
                )::Autoencoder
 
 Train an autoencoder. Set keyword arguments to use custom values for the number of
-iterations, the learning rate, the print interval and the device (cpu/gpu).
+iterations, the learning rate, the print interval, the device (cpu/gpu) and the path to the
+language data directory
 """
-function train_model(;iters=75000, learning_rate=0.01, print_interval=500, device=cpu
-                    )::Autoencoder
+function train_model(;iters=75000, learning_rate=0.01, print_interval=500, device=cpu,
+                     path::String="./data")::Autoencoder
 
-    input_lang, output_lang, word_pairs = prepare_data("asjpIn", "asjpOut", false)
+    input_lang, output_lang, word_pairs = prepare_data("asjpIn", "asjpOut", false, path)
 
     encoderRNN = Chain(Flux.Embedding(input_lang.n_words - 1, hidden_size), 
-                   GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform)) |> device
+                       GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform)) |> device
 
     decoderRNN = Chain(Flux.Embedding(output_lang.n_words - 1, hidden_size), x -> relu.(x), 
-                   GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform), 
+                       GRU(hidden_size, hidden_size, init=Flux.kaiming_uniform), 
                        Dense(hidden_size, output_lang.n_words - 1, 
                        init=Flux.kaiming_uniform)
-                   ) |> device
+                      ) |> device
 
     train_iters(encoderRNN, decoderRNN, word_pairs, (input_lang, output_lang), iters, 
                 1:(input_lang.n_words - 1), Float32(learning_rate), Int32(print_interval))
