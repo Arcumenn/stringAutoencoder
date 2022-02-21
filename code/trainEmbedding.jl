@@ -146,8 +146,9 @@ function word_to_vector(lang::Language, word::String)::Vector{Int32}
 end # word_to_vector
 
 
-function train_iters(encoder, decoder, word_pairs, langs::Tuple{Language, Language}, n_iters, 
-                     alphabet_range::UnitRange, learning_rate::Float32, print_every::Int32)
+function train_iters!(encoder, decoder, word_pairs, langs::Tuple{Language, Language}, 
+                      n_iters, alphabet_range::UnitRange, learning_rate::Float32, 
+                      print_every::Int32)
     
     print_loss_total::Float32 = 0.0
 
@@ -156,7 +157,8 @@ function train_iters(encoder, decoder, word_pairs, langs::Tuple{Language, Langua
     loss::Float32 = 0.0
 
     ps = Flux.params(encoder, decoder)
-    training_pairs = [pairs_to_vectors(rand(word_pairs[1:N_TRAINING]), langs) for i in 1:n_iters]
+    training_pairs = [pairs_to_vectors(rand(word_pairs[1:N_TRAINING]), langs) 
+                      for i in 1:n_iters]
     
     p = Progress(Int(floor(n_iters / print_every)), showspeed=true)
     for iter in 1:n_iters
@@ -288,7 +290,7 @@ end # get_embedding
 
 
 """
-    train_model(;iters=75000, learning_rate=0.01, print_interval=1000, device=cpu
+    train_model(;iters=75000, learning_rate=0.01, print_interval=500, device=cpu
                )::Autoencoder
 
 Train an autoencoder. Set keyword arguments to use custom values for the number of
@@ -309,7 +311,7 @@ function train_model(;iters=75000, learning_rate=0.01, print_interval=500, devic
                        init=Flux.kaiming_uniform)
                       ) |> device
 
-    train_iters(encoderRNN, decoderRNN, word_pairs, (input_lang, output_lang), iters, 
+    train_iters!(encoderRNN, decoderRNN, word_pairs, (input_lang, output_lang), iters, 
                 1:(input_lang.n_words - 1), Float32(learning_rate), Int32(print_interval))
 
     return Autoencoder(encoderRNN, decoderRNN, input_lang, output_lang, word_pairs)
