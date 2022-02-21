@@ -151,6 +151,7 @@ function train_iters!(encoder, decoder, word_pairs, langs::Tuple{Language, Langu
                       print_every::Int32)
     
     print_loss_total::Float32 = 0.0
+    # losses::Vector{Float32} = []
 
     optimizer = Descent(learning_rate)
 
@@ -177,6 +178,7 @@ function train_iters!(encoder, decoder, word_pairs, langs::Tuple{Language, Langu
         if iter % print_every == 0
             next!(p; showvalues = [(:Iteration, iter), 
                                    (:LossAverage, print_loss_total / print_every)])
+            # push!(losses, print_loss_total / print_every)
             print_loss_total = 0
         end # if
         
@@ -186,6 +188,7 @@ function train_iters!(encoder, decoder, word_pairs, langs::Tuple{Language, Langu
         # reset hidden state of encoder
         encoder[2].state = reshape(zeros(hidden_size), hidden_size, 1)
     end # for
+    # display(plot(collect(print_every:print_every:(length(losses) * print_every)), losses, smooth=true))
 end # train_iters
 
 
@@ -312,7 +315,7 @@ function train_model(;iters=75000, learning_rate=0.01, print_interval=500, devic
                       ) |> device
 
     train_iters!(encoderRNN, decoderRNN, word_pairs, (input_lang, output_lang), iters, 
-                1:(input_lang.n_words - 1), Float32(learning_rate), Int32(print_interval))
+                 1:(input_lang.n_words - 1), Float32(learning_rate), Int32(print_interval))
 
     return Autoencoder(encoderRNN, decoderRNN, input_lang, output_lang, word_pairs)
 end # train_model
@@ -337,12 +340,12 @@ end # test_model
 
 
 """
-    save_embedding(m::Autoencoder; words=1000, path="../data/embedding.csv"
+    save_embedding(m::Autoencoder; words=1000, path="./data/embedding.csv"
                   )::Nothing
 
 Saves the embeddings of a specific number of words (default: 1000).
 """
-function save_embedding(m::Autoencoder; words=1000, path="../data/embedding.csv"
+function save_embedding(m::Autoencoder; words=1000, path="./data/embedding.csv"
                        )::Nothing
 
     embedding = [get_embedding(m.encoder, m.input_lang, p[1])[:,] 
