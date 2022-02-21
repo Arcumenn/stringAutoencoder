@@ -168,7 +168,7 @@ function train_iters(encoder, decoder, word_pairs, langs::Tuple{Language, Langua
         
         grad = back(1f0)
 
-        print_loss_total += loss
+        print_loss_total += loss / length(target)
 
         if iter % print_every == 0
             next!(p; showvalues = [(:Iteration, iter), 
@@ -223,7 +223,7 @@ function model_loss(input::Vector{Int32}, target::Vector{Int32}, encoder, decode
             end # if
         end # for
     end # if/else
-    return loss / word_length
+    return loss
 end # model_loss
 
 
